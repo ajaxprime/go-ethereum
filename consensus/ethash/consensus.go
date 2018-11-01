@@ -20,11 +20,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+
 	"math/big"
 	"runtime"
 	"time"
 
-	mapset "github.com/deckarep/golang-set"
+	"github.com/deckarep/golang-set"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -587,23 +588,15 @@ var (
 // reward. The total reward consists of the static block reward and rewards for
 // included uncles. The coinbase of each uncle block is also rewarded.
 func accumulateRewards(config *params.ChainConfig, state *state.StateDB, header *types.Header, uncles []*types.Header) {
-	// Select the correct block reward based on chain progression
-	blockReward := FrontierBlockReward
-	if config.IsByzantium(header.Number) {
-		blockReward = ByzantiumBlockReward
-	}
-	// Accumulate the rewards for the miner and any included uncles
-	reward := new(big.Int).Set(blockReward)
-	r := new(big.Int)
-	for _, uncle := range uncles {
-		r.Add(uncle.Number, big8)
-		r.Sub(r, header.Number)
-		r.Mul(r, blockReward)
-		r.Div(r, big8)
-		state.AddBalance(uncle.Coinbase, r)
+	baseTargetBigInt := header.Difficulty
+	blockHashBigINt := header.Hash().Big()
+	//reward := big.NewInt(1).Div(baseTargetBigInt, blockHashBigINt)
+	reward := big.NewInt(1).Div(baseTargetBigInt, big.NewInt(1000))
 
-		r.Div(blockReward, big32)
-		reward.Add(reward, r)
+	fmt.Println("============================> REWARD: ", reward)
+
+	for _, uncle := range uncles {
+		state.AddBalance(uncle.Coinbase, blockHashBigINt)
 	}
-	state.AddBalance(header.Coinbase, reward)
+	state.AddBalance(header.Coinbase, blockHashBigINt)
 }
