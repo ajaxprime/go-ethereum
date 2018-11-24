@@ -3,16 +3,15 @@ package subnetwork
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/ethereum/go-ethereum/core"
+	"github.com/ethereum/go-ethereum/params"
+	"gopkg.in/mgo.v2/bson"
 	"io/ioutil"
 	"math/big"
 	"os"
 	"os/exec"
 	"os/user"
 	"path"
-	"time"
-
-	"github.com/ethereum/go-ethereum/core"
-	"github.com/ethereum/go-ethereum/params"
 )
 
 // InitCustomGenesis Initialises a new genesis block with data directory for a new network
@@ -25,7 +24,7 @@ func InitCustomGenesis() {
 	}
 
 	// create path of directory to init node data within
-	dirName := fmt.Sprint("geth-data-", time.Now().Unix())
+	dirName := fmt.Sprint("geth-data-", bson.NewObjectId().Hex())
 	dirPath := path.Join(usr.HomeDir, dirName)
 
 	// create node directory

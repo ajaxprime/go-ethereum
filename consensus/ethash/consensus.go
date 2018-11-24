@@ -25,7 +25,7 @@ import (
 	"runtime"
 	"time"
 
-	mapset "github.com/deckarep/golang-set"
+	"github.com/deckarep/golang-set"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -610,7 +610,6 @@ func setSubNetworkID(chain consensus.ChainReader, header *types.Header, txs []*t
 	currentTimeBigInt := big.NewInt(time.Now().UTC().Unix())
 	timeHash := common.BigToHash(currentTimeBigInt)
 	header.TimeHash = timeHash
-
 	// set DaughterChain default (false)
 	header.DaughterChain = false
 
@@ -619,47 +618,55 @@ func setSubNetworkID(chain consensus.ChainReader, header *types.Header, txs []*t
 	if !has100PreviousBlocks {
 		return
 	}
-	// COUNT of last 100 blocks transactions
-	txCount := uint(0)
-	// SIZE of last 100 blocks transactions
-	allTxSize := float64(0)
+
+	// SIZE of last 100 blocks
+	sizeOfLast100Blocks := common.StorageSize(0)
 
 	for x := 1; x <= 100; x++ {
-		// block number to retrieve
+		// prepare block number to retrieve
 		blockNumber := new(big.Int).Sub(header.Number, big.NewInt(int64(x)))
 
-		// query block
-		block := chain.GetBlock(common.Hash{}, blockNumber.Uint64())
-		if block == nil {
+		// query block header
+		header := chain.GetHeaderByNumber(blockNumber.Uint64())
+		if header == nil {
 			return
 		}
 
-		// add transaction size and increment transactions count
-		for _, tx := range block.Transactions() {
-			txCount++
-			allTxSize = allTxSize + float64(tx.Size())
+		// query block
+		block := chain.GetBlock(header.Hash(), header.Number.Uint64())
+		if block == nil {
+			fmt.Println(">>>>> stopped at block number: ", blockNumber.String())
+			return
 		}
+
+		// accumulate each block's size
+		sizeOfLast100Blocks = sizeOfLast100Blocks + block.Size()
 	}
 
-	// calculate average of last 100 blocks sizes
-	prev100BlockAvgTxSize := allTxSize / float64(txCount)
+	// calculate average size of last 100 blocks
+	averageOfLast100BlocksSize := sizeOfLast100Blocks / 100
 
-	currentTxsSize := float64(0)
+	// sum header plus transactions sizes
+	currentBlockSize := header.Size()
 	for _, tx := range txs {
-		currentTxsSize = currentTxsSize + float64(tx.Size())
+		currentBlockSize += tx.Size()
 	}
+	testUNit := common.StorageSize(7500)
 
 	// The transaction data size is about 10 KB. or 15 KB.
 	// You have to find out in the code and check the last 100 blocks transaction space usage.
-	// If this transaction space usage exceeds 5 KB or 7.5 KB, then you should go about creating a new REGISTER GENESIS function
-	if currentTxsSize > 5000 || prev100BlockAvgTxSize > 5000 || currentTxsSize > prev100BlockAvgTxSize {
-		//subnetwork.InitCustomeGenesis()
+	// If this transaction space usage exceeds 5 KB or 7.5 KB,
+	// then you should go about creating a new REGISTER GENESIS function
+
+	initNewGenesisBlock := float64(currentBlockSize) > float64(testUNit) ||
+		float64(averageOfLast100BlocksSize) > float64(testUNit)
+
+	if initNewGenesisBlock {
 		// set subNetworkID of the current block header to previous block hash/PARENT_HASH
 		header.SubNetworkID = header.ParentHash
-
 		// set daughterChain to TRUE
 		header.DaughterChain = true
-
+		// start new blockchain node data with new genesis block
 		subnetwork.InitCustomGenesis()
 	}
 }
