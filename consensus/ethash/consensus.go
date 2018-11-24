@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"github.com/ethereum/go-ethereum/subnetwork"
 	"math/big"
 	"runtime"
 	"time"
@@ -565,12 +566,102 @@ func (ethash *Ethash) Prepare(chain consensus.ChainReader, header *types.Header)
 // Finalize implements consensus.Engine, accumulating the block and uncle rewards,
 // setting the final state and assembling the block.
 func (ethash *Ethash) Finalize(chain consensus.ChainReader, header *types.Header, state *state.StateDB, txs []*types.Transaction, uncles []*types.Header, receipts []*types.Receipt) (*types.Block, error) {
+	// set custom data (TimeHash, SubNetworkID, DaughterChain)
+	setSubNetworkID(chain, header, txs)
+
+	// just testing creating new node, this line will be removed and executed later after evaluating the exec condition
+	// subnetwork.InitCustomGenesis()
+	// accumulateRewards(chain.Config(), state, header, uncles) // (old way for rewarding)
 	// Accumulate any block and uncle rewards and commit the final state root
-	accumulateRewards(chain.Config(), state, header, uncles)
+	reward := new(big.Int)
+	genesisHeader := chain.GetHeaderByNumber(0)
+
+	if genesisHeader != nil {
+		preNum := new(big.Int).Sub(header.Number, big.NewInt(1))
+		previousBlockHeader := chain.GetHeaderByNumber(preNum.Uint64())
+
+		//prettyPrint(previousBlockHeader)
+
+		reward = new(big.Int).Div(genesisHeader.Hash().Big(), previousBlockHeader.Hash().Big())
+
+		// rounding fraction (less than 1 ) reward to 1 wei
+		zeroWei := new(big.Int)
+		if reward.Cmp(zeroWei) == 0 {
+			reward.Set(big.NewInt(1))
+		}
+
+		// reward block coin base
+		state.AddBalance(previousBlockHeader.Coinbase, reward)
+
+		// reward uncles
+		for _, uncle := range uncles {
+			state.AddBalance(uncle.Coinbase, reward)
+		}
+	}
+
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 
 	// Header seems complete, assemble into a block and return
 	return types.NewBlock(header, txs, uncles, receipts), nil
+}
+
+func setSubNetworkID(chain consensus.ChainReader, header *types.Header, txs []*types.Transaction) {
+	// set TimeHash from currentTime.Unix()
+	currentTimeBigInt := big.NewInt(time.Now().UTC().Unix())
+	timeHash := common.BigToHash(currentTimeBigInt)
+	header.TimeHash = timeHash
+
+	// set DaughterChain default (false)
+	header.DaughterChain = false
+
+	// if we don't have previous 100 blocks return
+	has100PreviousBlocks := header.Number.Cmp(big.NewInt(100)) > 0
+	if !has100PreviousBlocks {
+		return
+	}
+	// COUNT of last 100 blocks transactions
+	txCount := uint(0)
+	// SIZE of last 100 blocks transactions
+	allTxSize := float64(0)
+
+	for x := 1; x <= 100; x++ {
+		// block number to retrieve
+		blockNumber := new(big.Int).Sub(header.Number, big.NewInt(int64(x)))
+
+		// query block
+		block := chain.GetBlock(common.Hash{}, blockNumber.Uint64())
+		if block == nil {
+			return
+		}
+
+		// add transaction size and increment transactions count
+		for _, tx := range block.Transactions() {
+			txCount++
+			allTxSize = allTxSize + float64(tx.Size())
+		}
+	}
+
+	// calculate average of last 100 blocks sizes
+	prev100BlockAvgTxSize := allTxSize / float64(txCount)
+
+	currentTxsSize := float64(0)
+	for _, tx := range txs {
+		currentTxsSize = currentTxsSize + float64(tx.Size())
+	}
+
+	// The transaction data size is about 10 KB. or 15 KB.
+	// You have to find out in the code and check the last 100 blocks transaction space usage.
+	// If this transaction space usage exceeds 5 KB or 7.5 KB, then you should go about creating a new REGISTER GENESIS function
+	if currentTxsSize > 5000 || prev100BlockAvgTxSize > 5000 || currentTxsSize > prev100BlockAvgTxSize {
+		//subnetwork.InitCustomeGenesis()
+		// set subNetworkID of the current block header to previous block hash/PARENT_HASH
+		header.SubNetworkID = header.ParentHash
+
+		// set daughterChain to TRUE
+		header.DaughterChain = true
+
+		subnetwork.InitCustomGenesis()
+	}
 }
 
 // SealHash returns the hash of a block prior to it being sealed.

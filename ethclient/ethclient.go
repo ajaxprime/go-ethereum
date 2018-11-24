@@ -146,7 +146,8 @@ func (ec *Client) getBlock(ctx context.Context, method string, args ...interface
 		}
 		txs[i] = tx.tx
 	}
-	return types.NewBlockWithHeader(head).WithBody(txs, uncles), nil
+	b := types.NewBlockWithHeader(head).WithBody(txs, uncles)
+	return b, nil
 }
 
 // HeaderByHash returns the block header with the given hash.
